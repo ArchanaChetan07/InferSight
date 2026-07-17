@@ -5,9 +5,13 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-0F766E?style=flat-square)](https://www.python.org/)
 [![License](https://img.shields.io/badge/license-Apache%202.0-134E4A?style=flat-square)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-32%20passing-14B8A6?style=flat-square)](tests/)
+[![TTFT p50](https://img.shields.io/badge/TTFT%20p50-84%20ms-0F766E?style=flat-square)](#demo-results)
+[![E2E p50](https://img.shields.io/badge/E2E%20p50-384%20ms-134E4A?style=flat-square)](#demo-results)
 [![vLLM](https://img.shields.io/badge/engine-vLLM%20%7C%20OpenAI--compatible-0F766E?style=flat-square)](#engine-support)
 [![Prometheus](https://img.shields.io/badge/export-Prometheus-E6522C?style=flat-square)](dashboards/)
 [![Grafana](https://img.shields.io/badge/dashboard-Grafana-F46800?style=flat-square)](dashboards/infersight-vllm.json)
+
+**Demo results (mock vLLM):** TTFT p50 **84 ms** / p99 **244 ms** · TBT p50 **17 ms** · E2E p50 **384 ms** / p99 **925 ms** · KV-cache **~98%** · **32/32** tests passing.
 
 Your APM says CPU is fine, memory is fine, and every request returns **200** — while users wait seconds for the first token.
 
