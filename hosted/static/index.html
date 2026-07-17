@@ -1,0 +1,209 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>InferSight — Inference Console</title>
+<style>
+  :root{
+    --ink:#0d1320;          /* server room at night */
+    --panel:#131b2c;
+    --line:#22304a;
+    --text:#c7d3e6;
+    --muted:#7d8ba3;
+    --amber:#ffb454;        /* instrument phosphor */
+    --cyan:#6fd3e0;
+    --alarm:#ff5c5c;
+    --ok:#7fd77f;
+    --mono:ui-monospace,"SF Mono","Cascadia Mono","JetBrains Mono",Menlo,Consolas,monospace;
+    --sans:"Segoe UI",system-ui,-apple-system,sans-serif;
+  }
+  *{box-sizing:border-box;margin:0}
+  body{background:var(--ink);color:var(--text);font-family:var(--sans);min-height:100vh}
+  a{color:var(--cyan)}
+
+  header{display:flex;align-items:center;gap:16px;padding:14px 22px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .wordmark{font-family:var(--mono);font-size:15px;letter-spacing:.18em;text-transform:uppercase;color:var(--amber)}
+  .wordmark b{color:var(--text);font-weight:600}
+  .conn{margin-left:auto;display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  input,select,button{font-family:var(--mono);font-size:12px;background:var(--panel);color:var(--text);
+    border:1px solid var(--line);border-radius:4px;padding:7px 10px}
+  input{width:280px}
+  button{cursor:pointer;color:var(--amber);border-color:#3a4a6b}
+  button:hover,button:focus-visible{border-color:var(--amber);outline:none}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--muted)}
+  .dot.live{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+  .dot.err{background:var(--alarm)}
+
+  main{padding:20px 22px;max-width:1240px;margin:0 auto;display:grid;gap:18px}
+
+  .readouts{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+  .readout{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px 16px}
+  .readout .label{font-family:var(--mono);font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+  .readout .value{font-family:var(--mono);font-size:26px;margin-top:6px;color:var(--amber)}
+  .readout .value.cool{color:var(--cyan)}
+  .readout .value.bad{color:var(--alarm)}
+  .readout .sub{font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:4px}
+
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px}
+  .panel h2{font-family:var(--mono);font-size:11px;letter-spacing:.16em;text-transform:uppercase;
+    color:var(--muted);font-weight:500;margin-bottom:10px}
+  .charts{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+  @media(max-width:900px){.charts{grid-template-columns:1fr}}
+  svg{width:100%;height:180px;display:block}
+  .trace-amber{stroke:var(--amber)} .trace-cyan{stroke:var(--cyan)}
+
+  table{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+  th,td{text-align:right;padding:8px 10px;border-bottom:1px solid var(--line);white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted);font-weight:500;font-size:10px;letter-spacing:.14em;text-transform:uppercase}
+  td.best{color:var(--ok)}
+
+  .alerts{display:grid;gap:8px;font-family:var(--mono);font-size:12px}
+  .alert{display:flex;gap:10px;padding:10px 12px;border:1px solid var(--line);border-radius:4px;align-items:baseline}
+  .alert .sev{font-size:10px;letter-spacing:.12em;text-transform:uppercase;padding:2px 6px;border-radius:3px}
+  .sev.critical{background:rgba(255,92,92,.15);color:var(--alarm)}
+  .sev.warning{background:rgba(255,180,84,.15);color:var(--amber)}
+  .alert time{color:var(--muted);margin-left:auto;font-size:11px}
+
+  .empty{color:var(--muted);font-family:var(--mono);font-size:12px;padding:18px;text-align:center}
+  @media (prefers-reduced-motion: no-preference){
+    .dot.live{animation:pulse 2s ease-in-out infinite}
+    @keyframes pulse{50%{opacity:.45}}
+  }
+</style>
+</head>
+<body>
+<header>
+  <span class="wordmark">Infer<b>Sight</b> · inference console</span>
+  <div class="conn">
+    <span class="dot" id="dot"></span>
+    <input id="apikey" type="password" placeholder="isk_… API key" autocomplete="off">
+    <select id="window">
+      <option value="900">15 min</option>
+      <option value="3600" selected>1 hour</option>
+      <option value="21600">6 hours</option>
+      <option value="86400">24 hours</option>
+    </select>
+    <button id="connect">Connect</button>
+  </div>
+</header>
+
+<main>
+  <section class="readouts" id="readouts" aria-label="Headline metrics"></section>
+
+  <section class="charts">
+    <div class="panel"><h2>TTFT · mean per minute</h2><svg id="chart-ttft" role="img" aria-label="TTFT over time"></svg></div>
+    <div class="panel"><h2>Throughput · requests + tokens per minute</h2><svg id="chart-tput" role="img" aria-label="Throughput over time"></svg></div>
+  </section>
+
+  <section class="panel">
+    <h2>Model &amp; cluster comparison</h2>
+    <div style="overflow-x:auto"><table id="models">
+      <thead><tr><th>Model / cluster</th><th>Requests</th><th>TTFT mean</th><th>TTFT p99</th><th>E2E mean</th><th>E2E p99</th><th>TBT mean</th><th>Tokens out</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+    <div class="empty" id="models-empty" hidden>No traffic in this window yet.</div>
+  </section>
+
+  <section class="panel">
+    <h2>Alert feed</h2>
+    <div class="alerts" id="alerts"></div>
+    <div class="empty" id="alerts-empty" hidden>No alerts fired. Quiet is good.</div>
+  </section>
+</main>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let timer = null;
+
+  const fmtMs = s => s == null ? "—" : (s*1000).toFixed(s*1000 < 100 ? 1 : 0) + " ms";
+  const fmtN  = n => n == null ? "—" : Intl.NumberFormat().format(Math.round(n));
+  const auth  = () => ({ "Authorization": "Bearer " + $("apikey").value.trim() });
+
+  async function api(path) {
+    const w = $("window").value;
+    const r = await fetch(`/v1/api/${path}${path.includes("?") ? "&" : "?"}window=${w}`, { headers: auth() });
+    if (!r.ok) throw new Error(await r.text());
+    return r.json();
+  }
+
+  function readout(label, value, cls="", sub="") {
+    return `<div class="readout"><div class="label">${label}</div>
+      <div class="value ${cls}">${value}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+  }
+
+  // Oscilloscope-style line trace: grid ticks + single phosphor line.
+  function trace(svg, points, cls, points2=null, cls2=null) {
+    const W = svg.clientWidth || 560, H = 180, PAD = 8;
+    svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+    let out = "";
+    for (let i = 1; i < 4; i++)
+      out += `<line x1="0" x2="${W}" y1="${H*i/4}" y2="${H*i/4}" stroke="var(--line)" stroke-width="1"/>`;
+    const draw = (pts, klass) => {
+      if (!pts || pts.length < 2) return "";
+      const max = Math.max(...pts.map(p => p.v), 1e-9);
+      const path = pts.map((p, i) =>
+        `${i ? "L" : "M"}${(i/(pts.length-1))*(W-2*PAD)+PAD},${H-PAD-(p.v/max)*(H-2*PAD)}`).join("");
+      return `<path d="${path}" fill="none" class="${klass}" stroke-width="1.6" stroke-linejoin="round"/>`;
+    };
+    out += draw(points, cls) + (points2 ? draw(points2, cls2) : "");
+    if (!points || points.length < 2)
+      out += `<text x="${W/2}" y="${H/2}" fill="var(--muted)" font-size="12" text-anchor="middle" font-family="var(--mono)">awaiting samples…</text>`;
+    svg.innerHTML = out;
+  }
+
+  async function refresh() {
+    try {
+      const [summary, ts, models, alerts] = await Promise.all([
+        api("summary"), api("timeseries"), api("models"), api("alerts"),
+      ]);
+      $("dot").className = "dot live";
+
+      const errRate = summary.error_rate || 0;
+      $("readouts").innerHTML =
+        readout("Requests", fmtN(summary.requests), "", `window · ${(+$("window").value/60).toFixed(0)} min`) +
+        readout("TTFT p99", fmtMs(summary.ttft_p99)) +
+        readout("E2E p99", fmtMs(summary.e2e_p99)) +
+        readout("Tokens out", fmtN(summary.completion_tokens), "cool") +
+        readout("Error rate", (errRate*100).toFixed(1) + "%", errRate >= 0.05 ? "bad" : "cool");
+
+      const series = ts.series || [];
+      trace($("chart-ttft"), series.map(b => ({ v: b.ttft_mean || 0 })), "trace-amber");
+      trace($("chart-tput"),
+        series.map(b => ({ v: b.requests || 0 })), "trace-cyan",
+        series.map(b => ({ v: (b.completion_tokens || 0) / 100 })), "trace-amber");
+
+      const rows = models.models || [];
+      $("models-empty").hidden = rows.length > 0;
+      const bestTtft = Math.min(...rows.map(r => r.ttft_p99 ?? Infinity));
+      $("models").querySelector("tbody").innerHTML = rows.map(r => `<tr>
+        <td>${r.model} <span style="color:var(--muted)">/ ${r.cluster}</span></td>
+        <td>${fmtN(r.requests)}</td><td>${fmtMs(r.ttft_mean)}</td>
+        <td class="${r.ttft_p99 === bestTtft && rows.length > 1 ? "best" : ""}">${fmtMs(r.ttft_p99)}</td>
+        <td>${fmtMs(r.e2e_mean)}</td><td>${fmtMs(r.e2e_p99)}</td>
+        <td>${fmtMs(r.tbt_mean)}</td><td>${fmtN(r.completion_tokens)}</td></tr>`).join("");
+
+      const feed = alerts.alerts || [];
+      $("alerts-empty").hidden = feed.length > 0;
+      $("alerts").innerHTML = feed.map(a => `<div class="alert">
+        <span class="sev ${a.severity}">${a.severity}</span><span>${a.message}</span>
+        <time>${new Date(a.ts*1000).toLocaleTimeString()}</time></div>`).join("");
+    } catch (e) {
+      $("dot").className = "dot err";
+      $("readouts").innerHTML = `<div class="empty">Connection failed — check the API key. (${String(e.message).slice(0,120)})</div>`;
+    }
+  }
+
+  $("connect").addEventListener("click", () => {
+    clearInterval(timer);
+    refresh();
+    timer = setInterval(refresh, 10000);
+  });
+  $("window").addEventListener("change", refresh);
+  $("apikey").addEventListener("keydown", e => { if (e.key === "Enter") $("connect").click(); });
+})();
+</script>
+</body>
+</html>

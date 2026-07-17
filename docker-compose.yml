@@ -1,0 +1,44 @@
+# One-command demo stack: mock vLLM + InferSight sidecar + Prometheus + Grafana.
+# Swap `mock-vllm` for your real vLLM container to use in anger.
+#
+# Host ports are overridable when the defaults are already taken:
+#   MOCK_PORT=18080 SIDECAR_PORT=18020 PROM_PORT=19091 GRAFANA_PORT=13001 HOSTED_PORT=19000 \
+#     docker compose up --build
+services:
+  mock-vllm:
+    build: .
+    entrypoint: ["python", "examples/mock_vllm.py", "--port", "8000"]
+    volumes: ["./examples:/app/examples"]
+    ports: ["${MOCK_PORT:-8000}:8000"]
+
+  infersight:
+    build: .
+    command: ["--upstream", "http://mock-vllm:8000", "--port", "8020"]
+    ports: ["${SIDECAR_PORT:-8020}:8020"]
+    depends_on: [mock-vllm]
+
+  prometheus:
+    image: prom/prometheus:latest
+    volumes: ["./deploy/prometheus.yml:/etc/prometheus/prometheus.yml"]
+    ports: ["${PROM_PORT:-9090}:9090"]
+    depends_on: [infersight]
+
+  grafana:
+    image: grafana/grafana:latest
+    environment:
+      - GF_AUTH_ANONYMOUS_ENABLED=true
+      - GF_AUTH_ANONYMOUS_ORG_ROLE=Admin
+    volumes:
+      - ./deploy/grafana-provisioning:/etc/grafana/provisioning
+      - ./dashboards:/var/lib/grafana/dashboards
+    ports: ["${GRAFANA_PORT:-3000}:3000"]
+    depends_on: [prometheus]
+
+  # Optional: the hosted tier, self-run.
+  hosted:
+    build:
+      context: .
+      dockerfile: deploy/Dockerfile.hosted
+    environment:
+      - INFERSIGHT_ADMIN_TOKEN=change-me
+    ports: ["${HOSTED_PORT:-9000}:9000"]
